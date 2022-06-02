@@ -29,6 +29,8 @@ from magic import Magic
 from mimetypes import guess_extension
 import sys
 import requests
+# from short_url import UrlEncoder
+from hashids import Hashids
 from validators import url as url_valid
 from pathlib import Path
 
@@ -64,6 +66,7 @@ app.config.update(
     NSFW_DETECT = False,
     NSFW_THRESHOLD = 0.608,
     URL_ALPHABET = "DEQhd2uFteibPwq0SWBInTpA_jcZL5GKz3YCR14Ulk87Jors9vNHgfaOmMXy6Vx-",
+    SALT = 'default-salt_0x0', # replace this with your own
 )
 
 if not app.config["TESTING"]:
@@ -90,6 +93,8 @@ Please install python-magic.""")
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+su = Hashids(salt=app.config["SALT"], min_length=1, alphabet=app.config["URL_ALPHABET"])
+
 class URL(db.Model):
     id = db.Column(db.Integer, primary_key = True)
     url = db.Column(db.UnicodeText, unique = True)
@@ -98,7 +103,7 @@ class URL(db.Model):
         self.url = url
 
     def getname(self):
-        return su.enbase(self.id)
+        return su.encode(self.id)
 
     def geturl(self):
         return url_for("get", path=self.getname(), _external=True) + "\n"
@@ -129,7 +134,7 @@ class File(db.Model):
         self.addr = addr
 
     def getname(self):
-        return u"{0}{1}".format(su.enbase(self.id), self.ext)
+        return u"{0}{1}".format(su.encode(self.id), self.ext)
 
     def geturl(self):
         n = self.getname()
@@ -204,31 +209,6 @@ class File(db.Model):
         db.session.commit()
         return f
 
-
-
-class UrlEncoder(object):
-    def __init__(self,alphabet, min_length):
-        self.alphabet = alphabet
-        self.min_length = min_length
-
-    def enbase(self, x):
-        n = len(self.alphabet)
-        str = ""
-        while x > 0:
-            str = (self.alphabet[int(x % n)]) + str
-            x = int(x // n)
-        padding = self.alphabet[0] * (self.min_length - len(str))
-        return '%s%s' % (padding, str)
-
-    def debase(self, x):
-        n = len(self.alphabet)
-        result = 0
-        for i, c in enumerate(reversed(x)):
-            result += self.alphabet.index(c) * (n ** i)
-        return result
-
-su = UrlEncoder(alphabet=app.config["URL_ALPHABET"], min_length=1)
-
 def fhost_url(scheme=None):
     if not scheme:
         return url_for(".fhost", _external=True).rstrip("/")
@@ -300,35 +280,38 @@ def get(path):
     path = Path(path.split("/", 1)[0])
     sufs = "".join(path.suffixes[-2:])
     name = path.name[:-len(sufs) or None]
-    id = su.debase(name)
+    id = su.decode(name)
 
-    if sufs:
-        f = File.query.get(id)
+    try:
+        if sufs:
+            f = File.query.get(id[0])
 
-        if f and f.ext == sufs:
-            if f.removed:
-                abort(451)
+            if f and f.ext == sufs:
+                if f.removed:
+                    abort(451)
 
-            fpath = Path(app.config["FHOST_STORAGE_PATH"]) / f.sha256
+                fpath = Path(app.config["FHOST_STORAGE_PATH"]) / f.sha256
 
-            if not fpath.is_file():
-                abort(404)
+                if not fpath.is_file():
+                    abort(404)
 
-            if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
-                response = make_response()
-                response.headers["Content-Type"] = f.mime
-                response.headers["Content-Length"] = fpath.stat().st_size
-                response.headers["X-Accel-Redirect"] = "/" + str(fpath)
-                return response
-            else:
-                return send_from_directory(app.config["FHOST_STORAGE_PATH"], f.sha256, mimetype = f.mime)
-    else:
-        u = URL.query.get(id)
+                if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
+                    response = make_response()
+                    response.headers["Content-Type"] = f.mime
+                    response.headers["Content-Length"] = fpath.stat().st_size
+                    response.headers["X-Accel-Redirect"] = "/" + str(fpath)
+                    return response
+                else:
+                    return send_from_directory(app.config["FHOST_STORAGE_PATH"], f.sha256, mimetype = f.mime)
+        else:
+            u = URL.query.get(id[0])
 
-        if u:
-            return redirect(u.url)
+            if u:
+                return redirect(u.url)
 
-    abort(404)
+        abort(404)
+    except ValueError:
+        abort(404)
 
 @app.route("/", methods=["GET", "POST"])
 def fhost():
