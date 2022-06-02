@@ -4,6 +4,10 @@ The Null Pointer
 This is a no-bullshit file hosting and URL shortening service that also runs
 `0x0.st <https://0x0.st>`_. Use with uWSGI.
 
+Changes from the original 0x0
+-----------------------------
+- Replaced short_url with hashids as the shortened link generator. Note that the result of the shortened link would be different.
+
 Configuration
 -------------
 
