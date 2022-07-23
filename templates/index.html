@@ -9,6 +9,13 @@ You can also POST remote URLs:
 Or you can shorten URLs:
     curl -F'shorten=http://example.com/some/long/url' {{ fhost_url }}
 
+If you want to protect your uploaded resources or shortened link,
+you only need to add -F'otp=true', as shown in the example below.
+This is also valid for POST remote URLs and shortening URLs.
+
+HTTP POST files with protection here:
+    curl -F'file=@yourfile.png' -F'otp=true' {{ fhost_url }}
+
 File URLs are valid for at least 30 days and up to a year (see below).
 Shortened URLs do not expire.
 {% set max_size = config["MAX_CONTENT_LENGTH"]|filesizeformat(True) %}

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>OTP Required</title>
+  </head>
+<body onLoad="askToken();">
+<h2>OTP Required</h2>
+<p id="token"></p>
+
+<script>
+function askToken() {
+  let text;
+  let otp = prompt("Enter your OTP code:");
+  if (otp == null || otp == "") {
+    text = "User cancelled the prompt. Reload this page to enter the token for access.";
+    document.getElementById("token").innerHTML = text;
+  } else {
+    text = "Please wait...";
+    document.getElementById("token").innerHTML = text;
+  	location.href = window.location.href + '?otp=' + otp;
+  }
+}
+</script>
+
+</body>
+</html>
+

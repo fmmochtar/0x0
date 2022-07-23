@@ -6,7 +6,8 @@ This is a no-bullshit file hosting and URL shortening service that also runs
 
 Changes from the original 0x0
 -----------------------------
-- Replaced short_url with hashids as the shortened link generator. Note that the result of the shortened link would be different.
+- Replaced short_url with hashids as the shortened link generator. Note that the result of the shortened link would be different since it is using a different module.
+- File and shortened link access protection with Timed OTP. Useful for those who self-hosted for themselves only and would like to protect their own uploaded resources.
 
 Configuration
 -------------

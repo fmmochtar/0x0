@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OTP Required</title>
+</head>
+<body onLoad="askToken();">
+
+<h2>OTP Required</h2>
+<p id="token"></p>
+
+<script>
+async function digestMessage(message) {
+  const msgUint8 = new TextEncoder().encode(message);                           // encode as (utf-8) Uint8Array
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);           // hash the message
+  const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // convert bytes to hex string
+  return hashHex;
+}
+
+function askToken() {
+  let text;
+  let otp = prompt("Enter your OTP code:");
+  if (otp == null || otp == "") {
+    text = "User cancelled the prompt. Reload this page to enter the token for access.";
+    document.getElementById("token").innerHTML = text;
+  } else {
+    text = "Please wait...";
+    document.getElementById("token").innerHTML = text
+    digestMessage(otp).then(digestHex => location.href = window.location.href + '?otp=' + digestHex);  
+  }
+}
+</script>
+
+</body>
+</html>
+

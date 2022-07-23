@@ -31,8 +31,10 @@ import sys
 import requests
 # from short_url import UrlEncoder
 from hashids import Hashids
+from sqlalchemy import null
 from validators import url as url_valid
 from pathlib import Path
+import pyotp
 
 app = Flask(__name__, instance_relative_config=True)
 app.config.update(
@@ -67,6 +69,7 @@ app.config.update(
     NSFW_THRESHOLD = 0.608,
     URL_ALPHABET = "DEQhd2uFteibPwq0SWBInTpA_jcZL5GKz3YCR14Ulk87Jors9vNHgfaOmMXy6Vx-",
     SALT = 'default-salt_0x0', # replace this with your own
+    TOTP_KEY = 'AAQMKZYVFWDSU425', # replace this with your own
 )
 
 if not app.config["TESTING"]:
@@ -94,10 +97,13 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 su = Hashids(salt=app.config["SALT"], min_length=1, alphabet=app.config["URL_ALPHABET"])
+otp = pyotp.TOTP(app.config['TOTP_KEY'])
+
 
 class URL(db.Model):
     id = db.Column(db.Integer, primary_key = True)
     url = db.Column(db.UnicodeText, unique = True)
+    protected = db.Column(db.Boolean, default=False)
 
     def __init__(self, url):
         self.url = url
@@ -108,11 +114,18 @@ class URL(db.Model):
     def geturl(self):
         return url_for("get", path=self.getname(), _external=True) + "\n"
 
-    def get(url):
+    def get(url, protected):
         u = URL.query.filter_by(url=url).first()
 
         if not u:
             u = URL(url)
+                
+            u.protected = protected
+            if u.protected is True:
+                u.protected = True
+            else:
+                u.protected = False  
+
             db.session.add(u)
             db.session.commit()
 
@@ -125,6 +138,7 @@ class File(db.Model):
     mime = db.Column(db.UnicodeText)
     addr = db.Column(db.UnicodeText)
     removed = db.Column(db.Boolean, default=False)
+    protected = db.Column(db.Boolean, default=False)
     nsfw_score = db.Column(db.Float)
 
     def __init__(self, sha256, ext, mime, addr):
@@ -144,7 +158,7 @@ class File(db.Model):
         else:
             return url_for("get", path=n, _external=True) + "\n"
 
-    def store(file_, addr):
+    def store(file_, protected, addr):
         data = file_.stream.read()
         digest = sha256(data).hexdigest()
 
@@ -205,6 +219,12 @@ class File(db.Model):
         if not f.nsfw_score and app.config["NSFW_DETECT"]:
             f.nsfw_score = nsfw.detect(p)
 
+        f.protected = protected
+        if f.protected is True:
+            f.protected = True
+        else:
+            f.protected = False
+
         db.session.add(f)
         db.session.commit()
         return f
@@ -218,14 +238,14 @@ def fhost_url(scheme=None):
 def is_fhost_url(url):
     return url.startswith(fhost_url()) or url.startswith(fhost_url("https"))
 
-def shorten(url):
+def shorten(url, protected):
     if len(url) > app.config["MAX_URL_LENGTH"]:
         abort(414)
 
     if not url_valid(url) or is_fhost_url(url) or "\n" in url:
         abort(400)
 
-    u = URL.get(url)
+    u = URL.get(url, protected)  
 
     return u.geturl()
 
@@ -240,15 +260,15 @@ def in_upload_bl(addr):
 
     return False
 
-def store_file(f, addr):
+def store_file(f, protected, addr):
     if in_upload_bl(addr):
         return "Your host is blocked from uploading files.\n", 451
 
-    sf = File.store(f, addr)
+    sf = File.store(f, protected, addr)
 
     return sf.geturl()
 
-def store_url(url, addr):
+def store_url(url, protected, addr):
     if is_fhost_url(url):
         abort(400)
 
@@ -269,12 +289,13 @@ def store_url(url, addr):
 
             f = urlfile(stream=r.raw, content_type=r.headers["content-type"], filename="")
 
-            return store_file(f, addr)
+            return store_file(f, protected, addr)
         else:
             abort(413)
     else:
         abort(411)
 
+#@app.route("/<path:path>", defaults={'otp': null})
 @app.route("/<path:path>")
 def get(path):
     path = Path(path.split("/", 1)[0])
@@ -295,19 +316,55 @@ def get(path):
                 if not fpath.is_file():
                     abort(404)
 
-                if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
-                    response = make_response()
-                    response.headers["Content-Type"] = f.mime
-                    response.headers["Content-Length"] = fpath.stat().st_size
-                    response.headers["X-Accel-Redirect"] = "/" + str(fpath)
-                    return response
+                if request.method == "GET" and f.protected is True:
+                    try:
+                        otp_now = sha256(otp.now().encode('utf-8')).hexdigest()
+                        otp_request = request.args.get('otp', default=None)
+                        if otp_request is None:
+                            return render_template("token-sha256.html")
+                        if otp_now == otp_request:
+                            if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
+                                response = make_response()
+                                response.headers["Content-Type"] = f.mime
+                                response.headers["Content-Length"] = fpath.stat().st_size
+                                response.headers["X-Accel-Redirect"] = "/" + str(fpath)
+                                return response
+                            else:
+                                return send_from_directory(app.config["FHOST_STORAGE_PATH"], f.sha256, mimetype = f.mime)
+                        else:
+                            return "401 Unauthorized.\n Invalid token.", 401
+                    except Exception as e:
+                        return render_template("token-sha256.html")
+                        
                 else:
-                    return send_from_directory(app.config["FHOST_STORAGE_PATH"], f.sha256, mimetype = f.mime)
+                    if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
+                        response = make_response()
+                        response.headers["Content-Type"] = f.mime
+                        response.headers["Content-Length"] = fpath.stat().st_size
+                        response.headers["X-Accel-Redirect"] = "/" + str(fpath)
+                        return response
+                    else:
+                        return send_from_directory(app.config["FHOST_STORAGE_PATH"], f.sha256, mimetype = f.mime)
+
         else:
             u = URL.query.get(id[0])
 
             if u:
-                return redirect(u.url)
+                if request.method == "GET" and u.protected:
+                    try:
+                        otp_now = sha256(otp.now().encode('utf-8')).hexdigest()
+                        otp_request = request.args.get('otp', default=null)
+                        if otp_request is null:
+                            return render_template("token-sha256.html")
+                        if otp_now == otp_request:
+                            return redirect(u.url)
+                        else:
+                            return "401 Unauthorized.\n Invalid token.", 401
+                    except Exception as e:
+                        print(e)
+                        return render_template("token-sha256.html")
+                else:
+                    return redirect(u.url)
 
         abort(404)
     except ValueError:
@@ -319,15 +376,33 @@ def fhost():
         sf = None
 
         if "file" in request.files:
-            return store_file(request.files["file"], request.remote_addr)
+            if "otp" in request.form:
+                return store_file(request.files["file"], True, request.remote_addr)
+            else:
+                return store_file(request.files["file"], False, request.remote_addr)
         elif "url" in request.form:
-            return store_url(request.form["url"], request.remote_addr)
+            if "otp" in request.form:
+                return store_url(request.form["url"], True, request.remote_addr)
+            else:
+                return store_url(request.form["url"], False, request.remote_addr)
         elif "shorten" in request.form:
-            return shorten(request.form["shorten"])
+            if "otp" in request.form:
+                otp_status = request.form["otp"].lower()
+                print(otp_status)
+                if otp_status == "true":
+                    return shorten(request.form["shorten"], True)
+                else:
+                    return shorten(request.form["shorten"], False)
+            else:
+                return shorten(request.form["shorten"], False)
 
         abort(400)
     else:
         return render_template("index.html")
+
+@app.route("/favicon.ico")
+def favicon():
+    return abort(404)
 
 @app.route("/robots.txt")
 def robots():
