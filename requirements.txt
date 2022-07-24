@@ -10,3 +10,4 @@ flask_migrate
 python_magic
 short_url
 hashids
+pyotp
