@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OTP Required</title>
+</head>
+<body onLoad="askToken();">
+
+<h2>OTP Required</h2>
+<p id="token"></p>
+
+<script>
+
+async function hashFromString(string) {
+    const hash = await crypto.subtle.digest("SHA-256", (new TextEncoder()).encode(string))
+    return btoa(String.fromCharCode(...new Uint8Array(hash)))
+}
+
+function askToken() {
+  let text;
+  let otp = prompt("Enter your OTP code:");
+  if (otp == null || otp == "") {
+    text = "User cancelled the prompt. Reload this page to enter the token for access.";
+    document.getElementById("token").innerHTML = text;
+  } else {
+    text = "Please wait...";
+    document.getElementById("token").innerHTML = text
+    hashFromString(otp).then(digestB64 => location.href = window.location.href + '?otp=' + encodeURIComponent(digestB64));
+  }
+}
+</script>
+
+</body>
+</html>
+

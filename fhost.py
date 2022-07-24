@@ -25,6 +25,7 @@ from flask_migrate import Migrate
 from jinja2.exceptions import *
 from jinja2 import ChoiceLoader, FileSystemLoader
 from hashlib import sha256
+import base64
 from magic import Magic
 from mimetypes import guess_extension
 import sys
@@ -318,10 +319,11 @@ def get(path):
 
                 if request.method == "GET" and f.protected is True:
                     try:
-                        otp_now = sha256(otp.now().encode('utf-8')).hexdigest()
+                        # otp_now = sha256(otp.now().encode('utf-8')).hexdigest()
+                        otp_now = base64.b64encode(sha256(otp.now().encode('utf-8')).digest()).decode('ascii')
                         otp_request = request.args.get('otp', default=None)
                         if otp_request is None:
-                            return render_template("token-sha256.html")
+                            return render_template("token-sha256-b64.html")
                         if otp_now == otp_request:
                             if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
                                 response = make_response()
@@ -334,7 +336,7 @@ def get(path):
                         else:
                             return "401 Unauthorized.\n Invalid token.", 401
                     except Exception as e:
-                        return render_template("token-sha256.html")
+                        return render_template("token-sha256-b64.html")
                         
                 else:
                     if app.config["FHOST_USE_X_ACCEL_REDIRECT"]:
@@ -352,17 +354,17 @@ def get(path):
             if u:
                 if request.method == "GET" and u.protected:
                     try:
-                        otp_now = sha256(otp.now().encode('utf-8')).hexdigest()
-                        otp_request = request.args.get('otp', default=null)
-                        if otp_request is null:
-                            return render_template("token-sha256.html")
+                        otp_now = base64.b64encode(sha256(otp.now().encode('utf-8')).digest()).decode('ascii')
+                        otp_request = request.args.get('otp', default=None)
+                        if otp_request is None:
+                            return render_template("token-sha256-b64.html")
                         if otp_now == otp_request:
                             return redirect(u.url)
                         else:
                             return "401 Unauthorized.\n Invalid token.", 401
                     except Exception as e:
                         print(e)
-                        return render_template("token-sha256.html")
+                        return render_template("token-sha256-b64.html")
                 else:
                     return redirect(u.url)
 
